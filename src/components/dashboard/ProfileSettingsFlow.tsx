@@ -288,7 +288,7 @@ function ProfileCard({ profile, userEmail }: { profile: any; userEmail: string }
           <div className="absolute -inset-1 rounded-full bg-gradient-to-br from-[var(--neon-purple)] to-[var(--neon-blue)] opacity-70 blur-md" />
           <div className="relative flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-gradient-to-br from-fuchsia-500/30 via-purple-500/20 to-sky-500/30 text-2xl font-bold text-white">
             {avatarUrl ? (
-              <img src={avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+              <img src={avatarUrl} alt={displayName} loading="lazy" decoding="async" className="h-full w-full object-cover" />
             ) : (
               initials || "ME"
             )}
