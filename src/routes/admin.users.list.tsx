@@ -72,7 +72,7 @@ import {
 import { UserCommandDrawer } from "@/components/admin/users/UserCommandDrawer";
 
 const statusEnum = z.enum(["active", "suspended", "pending", "deleted"]);
-const roleEnum = z.enum(["admin", "moderator", "student"]);
+const roleEnum = z.enum(["admin", "super_admin", "moderator", "student"]);
 const dateEnum = z.enum(["24h", "7d", "30d", "lifetime"]);
 const sortEnum = z.enum(["recent", "name", "logins", "usage", "lastLogin"]);
 
@@ -366,6 +366,7 @@ function AdminUsersListPage() {
             <SelectContent>
               <SelectItem value="all">All roles</SelectItem>
               <SelectItem value="admin">Admin</SelectItem>
+              <SelectItem value="super_admin">Super Admin</SelectItem>
               <SelectItem value="moderator">Moderator</SelectItem>
               <SelectItem value="student">Student</SelectItem>
             </SelectContent>
@@ -898,6 +899,7 @@ function buildTitle(s: z.infer<typeof searchSchema>) {
   if (s.verified === true) return "Verified users";
   if (s.verified === false) return "Unverified users";
   if (s.role === "admin") return "Administrators";
+  if (s.role === "super_admin") return "Super Administrators";
   if (s.role === "moderator") return "Moderators";
   if (s.status === "active") return "Active users";
   if (s.status === "pending") return "Pending users";
