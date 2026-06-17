@@ -285,19 +285,27 @@ export function AdvancedAnalyticsSection() {
     );
   }
 
-  const {
-    mcqCounts,
-    totals,
-    byKind,
-    subjectAccuracy,
-    chapterAccuracy,
-    strongTopics,
-    weakTopics,
-    heatmap,
-    streak,
-    insights,
-    goals,
-  } = data;
+  // Defensive destructure: in production, partial/null payloads from the
+  // server fn (e.g. brand-new account with no goals row yet) would throw
+  // when accessing nested fields, which would crash inside Recharts during
+  // render and trigger the route error boundary into an infinite retry
+  // loop (React error #185). Default every nested shape here.
+  const mcqCounts = data.mcqCounts ?? { today: 0, week: 0, month: 0, daily: [] };
+  const totals =
+    data.totals ?? { correct: 0, wrong: 0, accuracy: 0, attempts: 0, answered: 0, weeklyChange: 0 };
+  const byKind = data.byKind ?? {};
+  const subjectAccuracy = Array.isArray(data.subjectAccuracy) ? data.subjectAccuracy : [];
+  const chapterAccuracy = Array.isArray(data.chapterAccuracy) ? data.chapterAccuracy : [];
+  const strongTopics = Array.isArray(data.strongTopics) ? data.strongTopics : [];
+  const weakTopics = Array.isArray(data.weakTopics) ? data.weakTopics : [];
+  const heatmap = Array.isArray(data.heatmap) ? data.heatmap : [];
+  const streak = data.streak ?? { current: 0, longest: 0 };
+  const insights = Array.isArray(data.insights) ? data.insights : [];
+  const goals = data.goals ?? {
+    daily: { solved: 0, target: 0, percent: 0 },
+    weekly: { solved: 0, target: 0, percent: 0 },
+  };
+
 
   const accuracyPie = [
     { name: "Correct", value: totals.correct, color: "oklch(0.72 0.18 155)" },
