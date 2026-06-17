@@ -503,14 +503,16 @@ export const adminSetUserRole = createServerFn({ method: "POST" })
       data.grant ? "admin.user.role_grant" : "admin.user.role_revoke",
       { target_id: data.id, role: data.role },
     );
-    const sb = context.supabase;
+    // Mutate via service-role client — caller already passed manage_users check.
+    // Avoids RLS edge cases on user_roles when granting/revoking roles for other users.
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     if (data.grant) {
-      const { error } = await sb
+      const { error } = await supabaseAdmin
         .from("user_roles")
         .upsert({ user_id: data.id, role: data.role }, { onConflict: "user_id,role" });
       if (error) throw error;
     } else {
-      const { error } = await sb
+      const { error } = await supabaseAdmin
         .from("user_roles")
         .delete()
         .eq("user_id", data.id)
