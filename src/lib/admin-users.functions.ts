@@ -110,8 +110,9 @@ export const adminListUsers = createServerFn({ method: "POST" })
     if (data.role) {
       const role = data.role;
       if (role === "student") {
-        // Deny anyone with an elevated role.
-        const { data: elevated } = await sb
+        // Deny anyone with an elevated role. Use service-role client because
+        // RLS on user_roles only exposes the caller's own row to authenticated.
+        const { data: elevated } = await supabaseAdmin
           .from("user_roles")
           .select("user_id")
           .in("role", ELEVATED_ROLES as unknown as string[]);
@@ -120,7 +121,7 @@ export const adminListUsers = createServerFn({ method: "POST" })
       } else {
         const targetRoles =
           role === "admin" ? (ADMIN_ROLES as readonly string[]) : [role];
-        const { data: matches } = await sb
+        const { data: matches } = await supabaseAdmin
           .from("user_roles")
           .select("user_id")
           .in("role", targetRoles as unknown as string[]);
@@ -221,7 +222,10 @@ export const adminListUsers = createServerFn({ method: "POST" })
     const rolesMap = new Map<string, string[]>();
     const roleDisplayMap = new Map<string, string[]>();
     if (ids.length) {
-      const { data: rs } = await sb
+      // Use service-role client: caller already verified via assertPermission("manage_users").
+      // RLS on user_roles only exposes the caller's own row to authenticated roles,
+      // which would mask every other user's real role and make them all read as "student".
+      const { data: rs } = await supabaseAdmin
         .from("user_roles")
         .select("user_id,role,display_name")
         .in("user_id", ids);
@@ -359,8 +363,8 @@ export const adminUserStats = createServerFn({ method: "GET" })
         .eq("status", "pending")
         .is("deleted_at", null),
       // Pull distinct user_ids holding any admin-class role (admin OR super_admin).
-      // A single user with both roles must be counted once.
-      sb
+      // Use service-role client — RLS on user_roles only exposes the caller's own row.
+      supabaseAdmin
         .from("user_roles")
         .select("user_id")
         .in("role", ADMIN_ROLES as unknown as string[]),
@@ -499,14 +503,16 @@ export const adminSetUserRole = createServerFn({ method: "POST" })
       data.grant ? "admin.user.role_grant" : "admin.user.role_revoke",
       { target_id: data.id, role: data.role },
     );
-    const sb = context.supabase;
+    // Mutate via service-role client — caller already passed manage_users check.
+    // Avoids RLS edge cases on user_roles when granting/revoking roles for other users.
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     if (data.grant) {
-      const { error } = await sb
+      const { error } = await supabaseAdmin
         .from("user_roles")
         .upsert({ user_id: data.id, role: data.role }, { onConflict: "user_id,role" });
       if (error) throw error;
     } else {
-      const { error } = await sb
+      const { error } = await supabaseAdmin
         .from("user_roles")
         .delete()
         .eq("user_id", data.id)
