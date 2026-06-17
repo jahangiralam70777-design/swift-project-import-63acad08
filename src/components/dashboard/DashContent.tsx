@@ -101,8 +101,10 @@ export function DashContent() {
   const { data } = useQuery({
     queryKey: ["student-dashboard-snapshot"],
     queryFn: () => fetchSnapshot(),
-    staleTime: 30_000,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
     refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 
   // Dedupes with AdvancedAnalyticsSection's query — gives us real MCQ counts + goals.
@@ -110,8 +112,10 @@ export function DashContent() {
   const { data: adv } = useQuery({
     queryKey: ["student-advanced-analytics"],
     queryFn: () => fetchAdvanced(),
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
     refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 
   const counts = data?.counts;
