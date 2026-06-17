@@ -24,7 +24,6 @@ const listInput = z.object({
 
 // Roles that classify a user as an administrator (used by stats + filters)
 const ADMIN_ROLES = ["admin", "super_admin"] as const;
-const ELEVATED_ROLES = ["admin", "super_admin", "moderator"] as const;
 
 // Page through auth.users to collect ids matching a predicate (verified flag).
 // Caps at 10k users to stay safe; sufficient for this app's scale.
