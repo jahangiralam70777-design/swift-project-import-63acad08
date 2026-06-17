@@ -363,8 +363,8 @@ export const adminUserStats = createServerFn({ method: "GET" })
         .eq("status", "pending")
         .is("deleted_at", null),
       // Pull distinct user_ids holding any admin-class role (admin OR super_admin).
-      // A single user with both roles must be counted once.
-      sb
+      // Use service-role client — RLS on user_roles only exposes the caller's own row.
+      supabaseAdmin
         .from("user_roles")
         .select("user_id")
         .in("role", ADMIN_ROLES as unknown as string[]),
