@@ -311,7 +311,7 @@ export const adminControlCenter = createServerFn({ method: "GET" })
       sb.from("profiles").select("id", { count: "exact", head: true }).is("deleted_at", null),
       supabaseAdmin
         .from("user_roles")
-        .select("user_id", { count: "exact", head: true })
+        .select("user_id")
         .in("role", ["admin", "super_admin"]),
       sb.from("module_visibility").select("key,label,hidden"),
       sb.from("exam_attempts").select("kind, chapter_id, completed_at, created_at, user_id"),
@@ -494,7 +494,9 @@ export const adminControlCenter = createServerFn({ method: "GET" })
     return {
       users: {
         total_students: profilesTotal.count ?? 0,
-        total_admins: adminRoles.count ?? 0,
+        total_admins: new Set(
+          ((adminRoles.data ?? []) as Array<{ user_id: string }>).map((r) => r.user_id),
+        ).size,
         active_now: Number(ao.active_now ?? 0),
         active_24h: Number(ua.active_24h ?? 0),
         active_7d: Number(ua.active_7d ?? 0),
