@@ -43,6 +43,12 @@ export function DefaultErrorFallback({ error, reset }: { error: Error; reset: ()
   const [attempts, setAttempts] = useState(0);
   const [recovering, setRecovering] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track the specific error instance we're recovering from. If the same
+  // child keeps throwing a fresh Error object each render, the previous
+  // implementation would re-run the auto-retry effect on every render and
+  // chain setStates, causing React error #185 ("Maximum update depth
+  // exceeded"). Comparing by message+stack breaks that loop.
+  const errorSigRef = useRef<string>("");
 
   useEffect(() => {
     if (typeof console !== "undefined") {
@@ -54,6 +60,10 @@ export function DefaultErrorFallback({ error, reset }: { error: Error; reset: ()
   // showing the user-facing error. Skip for auth/permission errors.
   useEffect(() => {
     if (isNonRetryable(error)) return;
+    const sig = `${error?.message ?? ""}::${error?.stack?.slice(0, 200) ?? ""}`;
+    // Same error as last render → don't restart the retry pipeline.
+    if (sig === errorSigRef.current && attempts > 0) return;
+    errorSigRef.current = sig;
     if (attempts >= MAX_AUTO_RETRIES) return;
     setRecovering(true);
     const delay = AUTO_RETRY_DELAYS_MS[Math.min(attempts, AUTO_RETRY_DELAYS_MS.length - 1)];
@@ -72,6 +82,7 @@ export function DefaultErrorFallback({ error, reset }: { error: Error; reset: ()
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempts, error]);
+
 
   // While silently retrying, render a soft inline spinner — never the scary
   // "didn't load" panel. Keeps section-level failures from looking like crashes.
