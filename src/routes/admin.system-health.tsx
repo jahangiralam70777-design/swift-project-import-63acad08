@@ -780,8 +780,8 @@ function SystemHealthPage() {
 
       {/* ============ DETAIL DIALOG ============ */}
       <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[90vh] w-[calc(100vw-2rem)] max-w-3xl flex-col overflow-hidden p-0 sm:w-full">
+          <DialogHeader className="shrink-0 border-b border-border/40 px-6 pb-4 pt-6">
             <DialogTitle className="flex items-start gap-2 pr-6 text-base">
               {selected ? (
                 <Badge
@@ -791,14 +791,24 @@ function SystemHealthPage() {
                   {SEVERITY_META[selected.severity].label}
                 </Badge>
               ) : null}
-              <span className="min-w-0 break-words font-display">{selected?.message}</span>
+              <span
+                className="min-w-0 flex-1 font-display"
+                style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+              >
+                {selected?.message}
+              </span>
             </DialogTitle>
-            <DialogDescription className="text-xs">
+            <DialogDescription className="text-xs" style={{ overflowWrap: "anywhere" }}>
               {selected ? (
                 <>
                   {SOURCE_LABEL[selected.source]} ·{" "}
                   {selected.route ? (
-                    <code className="rounded bg-muted/60 px-1 py-0.5">{selected.route}</code>
+                    <code
+                      className="inline-block max-w-full rounded bg-muted/60 px-1 py-0.5 align-bottom"
+                      style={{ overflowWrap: "anywhere", wordBreak: "break-all" }}
+                    >
+                      {selected.route}
+                    </code>
                   ) : (
                     "no route"
                   )}{" "}
@@ -809,33 +819,54 @@ function SystemHealthPage() {
             </DialogDescription>
           </DialogHeader>
           {selected ? (
-            <div className="space-y-4 text-sm">
-              {selected.stack ? (
-                <div>
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Stack trace
-                  </p>
-                  <pre className="max-h-64 overflow-auto rounded-lg border border-border/40 bg-muted/40 p-3 text-[11px] leading-relaxed">
-                    {selected.stack}
-                  </pre>
-                </div>
-              ) : null}
-              {selected.payload ? (
-                <div>
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Payload
-                  </p>
-                  <pre className="max-h-48 overflow-auto rounded-lg border border-border/40 bg-muted/40 p-3 text-[11px] leading-relaxed">
-                    {JSON.stringify(selected.payload, null, 2)}
-                  </pre>
-                </div>
-              ) : null}
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-3">
-                <div className="text-[11px] text-muted-foreground">
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4 text-sm">
+                {selected.stack ? (
+                  <div className="min-w-0">
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Stack trace
+                    </p>
+                    <pre
+                      className="max-h-64 max-w-full overflow-auto rounded-lg border border-border/40 bg-muted/40 p-3 text-[11px] leading-relaxed"
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        overflowWrap: "anywhere",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {selected.stack}
+                    </pre>
+                  </div>
+                ) : null}
+                {selected.payload ? (
+                  <div className="min-w-0">
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Payload
+                    </p>
+                    <pre
+                      className="max-h-48 max-w-full overflow-auto rounded-lg border border-border/40 bg-muted/40 p-3 text-[11px] leading-relaxed"
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        overflowWrap: "anywhere",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {JSON.stringify(selected.payload, null, 2)}
+                    </pre>
+                  </div>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border/40 px-6 py-3">
+                <div
+                  className="min-w-0 text-[11px] text-muted-foreground"
+                  style={{ overflowWrap: "anywhere" }}
+                >
                   Fingerprint:{" "}
-                  <code className="rounded bg-muted/60 px-1 py-0.5">{selected.fingerprint.slice(0, 16)}</code>
+                  <code className="rounded bg-muted/60 px-1 py-0.5 font-mono">
+                    {selected.fingerprint.slice(0, 16)}
+                  </code>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {!selected.resolved && (
                     <Button
                       variant="outline"
