@@ -1101,7 +1101,7 @@ export function UserManagementFlow() {
                 </thead>
                 <tbody className="divide-y divide-border/[0.35]">
                   {rows.map((u) => {
-                    const isAdmin = u.roles.includes("admin");
+                    const isAdmin = u.roles.includes("admin") || u.roles.includes("super_admin");
                     const isDeleted = !!u.deleted_at;
                     const displayStatus = isDeleted ? "deleted" : u.status;
                     const checked = selected.has(u.id);
