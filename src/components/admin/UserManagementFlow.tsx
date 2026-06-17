@@ -1801,8 +1801,8 @@ function UserEditorDialog({
               student/moderator status.
             </p>
             <div className="grid gap-2">
-              {(["student", "moderator", "admin"] as const).map((r) => {
-                const isAdminRole = r === "admin";
+              {(["student", "moderator", "admin", "super_admin"] as const).map((r) => {
+                const isAdminRole = r === "admin" || r === "super_admin";
                 return (
                   <div
                     key={r}
@@ -1816,7 +1816,7 @@ function UserEditorDialog({
                       ) : (
                         <UserPlus className="h-4 w-4 text-emerald-400" />
                       )}
-                      {r}
+                      {getRoleDisplayName(r)}
                       {isAdminRole && (
                         <span className="ml-1 text-[10px] text-muted-foreground">(read-only)</span>
                       )}
