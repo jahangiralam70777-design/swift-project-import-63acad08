@@ -696,7 +696,11 @@ export function DashContent() {
       </section>
 
       {/* ============ COMPLETION TRACKER (existing) ============ */}
-      <CompletionTracker />
+      <DeferUntilIdle fallback={<Skeleton className="h-40 w-full rounded-3xl" />}>
+        <Suspense fallback={<Skeleton className="h-40 w-full rounded-3xl" />}>
+          <CompletionTracker />
+        </Suspense>
+      </DeferUntilIdle>
     </main>
   );
 }
