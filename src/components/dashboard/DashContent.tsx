@@ -70,7 +70,7 @@ function greeting() {
 }
 
 // Tiny inline sparkline
-function Sparkline({ values, color }: { values: number[]; color: string }) {
+const Sparkline = memo(function Sparkline({ values, color }: { values: number[]; color: string }) {
   const max = Math.max(1, ...values);
   const pts = values
     .map((v, i) => `${(i / Math.max(1, values.length - 1)) * 100},${30 - (v / max) * 28}`)
@@ -88,7 +88,7 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
       <polyline points={`0,30 ${pts} 100,30`} fill={color} opacity="0.12" />
     </svg>
   );
-}
+});
 
 export function DashContent() {
   const { isPathHidden } = useModuleVisibility();
