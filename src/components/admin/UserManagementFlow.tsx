@@ -1151,11 +1151,14 @@ export function UserManagementFlow() {
                         <td className="px-5 py-3.5">
                           <div className="flex flex-nowrap items-center gap-1.5">
                             {(() => {
-                              // Always render the actual role from user_roles.
-                              // Users with no row are students by DB convention
-                              // (see admin-users.functions.ts effectiveRoles).
-                              const raw = u.roles && u.roles.length > 0 ? u.roles : ["student"];
-                              const ordered = sortRolesByRank(raw);
+                              const ordered = sortRolesByRank(u.roles ?? []);
+                              if (ordered.length === 0) {
+                                return (
+                                  <span className="text-[11px] font-medium text-muted-foreground">
+                                    No role assigned
+                                  </span>
+                                );
+                              }
                               return ordered.map((roleKey) => {
                                 const tone = ROLE_TONE[roleKey] ?? ROLE_TONE.user;
                                 return (
