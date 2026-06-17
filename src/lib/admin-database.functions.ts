@@ -98,7 +98,7 @@ export const adminGetDatabaseStats = createServerFn({ method: "POST" })
       sb.from("profiles").select("id", { count: "exact", head: true }),
       supabaseAdmin
         .from("user_roles")
-        .select("user_id", { count: "exact" })
+        .select("user_id")
         .in("role", ["admin", "super_admin"]),
       sb.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", sevenAgo),
       sb.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", thirtyAgo),
@@ -150,7 +150,9 @@ export const adminGetDatabaseStats = createServerFn({ method: "POST" })
       ["profiles.recent", profilesRecent],
     ]);
 
-    const adminCount = adminRoles.count ?? 0;
+    const adminCount = new Set(
+      ((adminRoles.data ?? []) as Array<{ user_id: string }>).map((r) => r.user_id),
+    ).size;
     const totalUsers = profilesTotal.count ?? 0;
     const students = Math.max(0, totalUsers - adminCount);
     const active7d = new Set(
