@@ -1,17 +1,38 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { lazy, Suspense, useMemo } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useState } from "react";
 import { useModuleVisibility } from "@/hooks/use-module-visibility";
 import { studentDashboardSnapshot } from "@/lib/student-dashboard.functions";
 import { studentAdvancedAnalytics } from "@/lib/student-advanced-analytics.functions";
 import { useAppStore } from "@/stores/app-store";
 import { Skeleton } from "@/components/ui/skeleton";
 
-import { CompletionTracker } from "./CompletionTracker";
+const CompletionTracker = lazy(() =>
+  import("./CompletionTracker").then((m) => ({ default: m.CompletionTracker })),
+);
 const AdvancedAnalyticsSection = lazy(() =>
   import("./AdvancedAnalyticsSection").then((m) => ({ default: m.AdvancedAnalyticsSection })),
 );
+
+/** Mount children only after the browser is idle to keep initial paint fast. */
+function DeferUntilIdle({ children, fallback }: { children: React.ReactNode; fallback?: React.ReactNode }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (typeof w.requestIdleCallback === "function") {
+      const id = w.requestIdleCallback(() => setReady(true), { timeout: 1500 });
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const t = setTimeout(() => setReady(true), 200);
+    return () => clearTimeout(t);
+  }, []);
+  if (!ready) return <>{fallback ?? null}</>;
+  return <>{children}</>;
+}
 import { CountUp } from "@/components/realtime/CountUp";
 import { stripAutoTitle } from "@/lib/strip-auto";
 import {
