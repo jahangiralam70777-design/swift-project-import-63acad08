@@ -530,9 +530,11 @@ export function DashContent() {
       </section>
 
       {/* ============ ADVANCED ANALYTICS (existing) ============ */}
-      <Suspense fallback={<Skeleton className="h-72 w-full rounded-3xl" />}>
-        <AdvancedAnalyticsSection />
-      </Suspense>
+      <DeferUntilIdle fallback={<Skeleton className="h-72 w-full rounded-3xl" />}>
+        <Suspense fallback={<Skeleton className="h-72 w-full rounded-3xl" />}>
+          <AdvancedAnalyticsSection />
+        </Suspense>
+      </DeferUntilIdle>
 
       {/* ============ MOCK CARD ============ */}
       {!mockTestHidden && (
