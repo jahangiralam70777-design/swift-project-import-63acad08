@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -28,24 +28,72 @@ import {
 } from "@/components/ui/dialog";
 import {
   Activity,
+  AlertOctagon,
   AlertTriangle,
   CheckCircle2,
+  CheckCheck,
   Download,
+  Filter,
   RefreshCw,
+  Route as RouteIcon,
+  Search,
   ShieldAlert,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin/system-health")({
   component: SystemHealthPage,
   head: () => ({ meta: [{ title: "System Health · CA Aspire BD Admin" }] }),
 });
 
-const SEVERITY_STYLES: Record<SystemErrorRow["severity"], string> = {
-  critical: "bg-rose-500/20 text-rose-300 border-rose-500/30",
-  high: "bg-orange-500/20 text-orange-300 border-orange-500/30",
-  medium: "bg-amber-500/20 text-amber-300 border-amber-500/30",
-  low: "bg-sky-500/20 text-sky-300 border-sky-500/30",
+type Severity = SystemErrorRow["severity"];
+type Source = SystemErrorRow["source"];
+
+const SEVERITY_META: Record<
+  Severity,
+  { label: string; ring: string; chip: string; dot: string; text: string }
+> = {
+  critical: {
+    label: "Critical",
+    ring: "ring-rose-500/30",
+    chip: "bg-rose-500/15 text-rose-300 border-rose-500/30",
+    dot: "bg-rose-500 shadow-[0_0_10px_var(--tw-shadow-color)] shadow-rose-500/70",
+    text: "text-rose-400",
+  },
+  high: {
+    label: "High",
+    ring: "ring-orange-500/30",
+    chip: "bg-orange-500/15 text-orange-300 border-orange-500/30",
+    dot: "bg-orange-500 shadow-[0_0_10px_var(--tw-shadow-color)] shadow-orange-500/70",
+    text: "text-orange-400",
+  },
+  medium: {
+    label: "Medium",
+    ring: "ring-amber-500/30",
+    chip: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+    dot: "bg-amber-500 shadow-[0_0_10px_var(--tw-shadow-color)] shadow-amber-500/70",
+    text: "text-amber-400",
+  },
+  low: {
+    label: "Low",
+    ring: "ring-sky-500/30",
+    chip: "bg-sky-500/15 text-sky-300 border-sky-500/30",
+    dot: "bg-sky-500 shadow-[0_0_10px_var(--tw-shadow-color)] shadow-sky-500/70",
+    text: "text-sky-400",
+  },
+};
+
+const SOURCE_LABEL: Record<Source, string> = {
+  frontend: "Frontend",
+  backend: "Backend",
+  db: "Database",
+  network: "Network",
+  unknown: "Unknown",
 };
 
 function toCsv(rows: SystemErrorRow[]): string {
@@ -71,6 +119,18 @@ function toCsv(rows: SystemErrorRow[]): string {
   ].join("\n");
 }
 
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const s = Math.max(1, Math.round(diff / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.round(h / 24);
+  return `${d}d ago`;
+}
+
 function SystemHealthPage() {
   const qc = useQueryClient();
   const list = useServerFn(adminListSystemErrors);
@@ -84,34 +144,67 @@ function SystemHealthPage() {
   const [resolved, setResolved] = useState<string>("open");
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<SystemErrorRow | null>(null);
+  const [tick, setTick] = useState(0); // forces relativeTime re-render
 
   const filters = useMemo(
     () => ({
       page,
       pageSize,
-      severity: (severity || undefined) as SystemErrorRow["severity"] | undefined,
-      source: (source || undefined) as SystemErrorRow["source"] | undefined,
+      severity: (severity || undefined) as Severity | undefined,
+      source: (source || undefined) as Source | undefined,
       resolved: resolved === "open" ? false : resolved === "resolved" ? true : undefined,
       q: q.trim() || undefined,
     }),
     [page, pageSize, severity, source, resolved, q],
   );
 
-  const summaryQ = useQuery({ queryKey: ["sys-health-summary"], queryFn: () => summary() });
+  const summaryQ = useQuery({
+    queryKey: ["sys-health-summary"],
+    queryFn: () => summary(),
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+  });
   const listQ = useQuery({
     queryKey: ["sys-health-list", filters],
     queryFn: () => list({ data: filters }),
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
+
+  // Re-render relative timestamps every 30s.
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const resolveM = useMutation({
     mutationFn: (vars: { id: string; resolved: boolean }) => resolve({ data: vars }),
-    onSuccess: () => {
-      toast.success("Updated");
+    onMutate: (vars) => {
+      // Optimistic update on the list cache so the UI snaps instantly.
+      const key = ["sys-health-list", filters] as const;
+      const prev = qc.getQueryData<{ rows: SystemErrorRow[]; total: number }>(key);
+      if (prev) {
+        qc.setQueryData(key, {
+          ...prev,
+          rows: prev.rows.map((r) =>
+            r.id === vars.id
+              ? { ...r, resolved: vars.resolved, resolved_at: vars.resolved ? new Date().toISOString() : null }
+              : r,
+          ),
+        });
+      }
+      return { prev, key };
+    },
+    onSuccess: (_d, vars) => {
+      toast.success(vars.resolved ? "Issue resolved" : "Issue reopened");
       qc.invalidateQueries({ queryKey: ["sys-health-list"] });
       qc.invalidateQueries({ queryKey: ["sys-health-summary"] });
       setSelected(null);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error, _v, ctx) => {
+      if (ctx?.prev && ctx.key) qc.setQueryData(ctx.key, ctx.prev);
+      toast.error(e.message);
+    },
   });
 
   const exportCsv = () => {
@@ -128,22 +221,94 @@ function SystemHealthPage() {
   };
 
   const s = summaryQ.data;
+
+  // Severity mix derived from current page (real rows).
+  const severityCounts = useMemo(() => {
+    const c: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+    for (const r of listQ.data?.rows ?? []) c[r.severity] += 1;
+    return c;
+  }, [listQ.data?.rows]);
+  const totalOnPage = (listQ.data?.rows.length ?? 0) || 1;
+
+  const refreshing = listQ.isFetching || summaryQ.isFetching;
+  const total = listQ.data?.total ?? 0;
+  const showingFrom = total === 0 ? 0 : page * pageSize + 1;
+  const showingTo = Math.min(total, (page + 1) * pageSize);
+
+  const hasActiveFilters = !!(severity || source || q || resolved !== "open");
+  const clearFilters = () => {
+    setSeverity("");
+    setSource("");
+    setQ("");
+    setResolved("open");
+    setPage(0);
+  };
+
+  // Hero status palette
+  const status = s?.status ?? (summaryQ.isLoading ? null : "healthy");
   const StatusIcon =
-    s?.status === "healthy" ? CheckCircle2 : s?.status === "degraded" ? AlertTriangle : ShieldAlert;
+    status === "healthy"
+      ? ShieldCheck
+      : status === "degraded"
+        ? ShieldAlert
+        : AlertTriangle;
+  const statusTone =
+    status === "healthy"
+      ? {
+          grad: "from-emerald-500/25 via-emerald-400/10 to-transparent",
+          ring: "ring-emerald-500/30",
+          text: "text-emerald-400",
+          chip: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+          dot: "bg-emerald-500",
+          headline: "All systems operational",
+        }
+      : status === "degraded"
+        ? {
+            grad: "from-rose-500/25 via-rose-400/10 to-transparent",
+            ring: "ring-rose-500/40",
+            text: "text-rose-400",
+            chip: "bg-rose-500/15 text-rose-300 border-rose-500/30",
+            dot: "bg-rose-500",
+            headline: "Degraded performance",
+          }
+        : {
+            grad: "from-amber-500/25 via-amber-400/10 to-transparent",
+            ring: "ring-amber-500/30",
+            text: "text-amber-400",
+            chip: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+            dot: "bg-amber-500",
+            headline: "Minor incidents reported",
+          };
+
+  // Hide tick from lint as a no-op dependency.
+  void tick;
 
   return (
     <div className="container mx-auto max-w-7xl space-y-6 px-4 py-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+      {/* ============ HEADER ============ */}
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs text-muted-foreground">
-            <Link to="/admin" className="hover:underline">
+            <Link to="/admin" className="hover:text-foreground hover:underline">
               Admin
             </Link>{" "}
-            / System Health
+            <span className="px-1 opacity-50">/</span> System Health
           </p>
-          <h1 className="font-display text-2xl font-bold">System Health & Error Logs</h1>
+          <h1 className="font-display mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
+            System Health & Incidents
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Live monitoring of platform errors, severity trends and affected routes.
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-2 rounded-full border border-border/60 bg-background/40 px-3 py-1.5 text-[11px] text-muted-foreground sm:flex">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            </span>
+            Auto-refresh · 30s
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -151,8 +316,10 @@ function SystemHealthPage() {
               listQ.refetch();
               summaryQ.refetch();
             }}
+            disabled={refreshing}
           >
-            <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+            <RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} />
+            Refresh
           </Button>
           <Button
             variant="outline"
@@ -165,173 +332,431 @@ function SystemHealthPage() {
         </div>
       </header>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="glass-card rounded-2xl p-5">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Status</p>
-          {summaryQ.isLoading ? (
-            <Skeleton className="mt-2 h-7 w-24" />
-          ) : (
-            <div className="mt-2 flex items-center gap-2">
-              <StatusIcon
-                className={`h-5 w-5 ${s?.status === "healthy" ? "text-emerald-400" : s?.status === "degraded" ? "text-rose-400" : "text-amber-400"}`}
-              />
-              <span className="font-display text-xl font-bold capitalize">{s?.status ?? "—"}</span>
+      {/* ============ HERO STATUS ============ */}
+      <section
+        className={cn(
+          "relative overflow-hidden rounded-3xl border border-border/60 bg-card/40 p-6 ring-1 backdrop-blur",
+          statusTone.ring,
+        )}
+      >
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-0 bg-gradient-to-br opacity-80",
+            statusTone.grad,
+          )}
+        />
+        <div className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full bg-foreground/[0.04] blur-3xl" />
+
+        <div className="relative grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+          <div className="flex items-start gap-4">
+            <div
+              className={cn(
+                "flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-background/60 ring-1 backdrop-blur",
+                statusTone.ring,
+              )}
+            >
+              <StatusIcon className={cn("h-7 w-7", statusTone.text)} />
             </div>
-          )}
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className={cn("uppercase tracking-wider", statusTone.chip)}>
+                  <span className={cn("mr-1.5 inline-block h-1.5 w-1.5 rounded-full", statusTone.dot)} />
+                  {status ?? "—"}
+                </Badge>
+                <span className="text-[11px] text-muted-foreground">
+                  Updated {summaryQ.dataUpdatedAt ? relativeTime(new Date(summaryQ.dataUpdatedAt).toISOString()) : "—"}
+                </span>
+              </div>
+              {summaryQ.isLoading ? (
+                <Skeleton className="mt-3 h-8 w-72" />
+              ) : (
+                <h2 className="font-display mt-2 text-2xl font-bold leading-tight sm:text-3xl">
+                  {statusTone.headline}
+                </h2>
+              )}
+              <p className="mt-1 text-sm text-muted-foreground">
+                {status === "healthy"
+                  ? "No active incidents. Continuous error telemetry is streaming normally."
+                  : status === "degraded"
+                    ? "Critical errors detected in the last 24 hours — prioritise the queue below."
+                    : "Open issues require attention. Triage and resolve from the list below."}
+              </p>
+            </div>
+          </div>
+
+          {/* Quick metrics */}
+          <div className="grid grid-cols-3 gap-3">
+            <MetricTile
+              label="Open issues"
+              value={summaryQ.isLoading ? null : s?.openErrors ?? 0}
+              icon={<AlertOctagon className="h-4 w-4" />}
+              tone="text-amber-400"
+            />
+            <MetricTile
+              label="Critical · 24h"
+              value={summaryQ.isLoading ? null : s?.critical24h ?? 0}
+              icon={<ShieldAlert className="h-4 w-4" />}
+              tone="text-rose-400"
+              emphasise={(s?.critical24h ?? 0) > 0}
+            />
+            <MetricTile
+              label="Affected routes"
+              value={summaryQ.isLoading ? null : s?.topRoutes.length ?? 0}
+              icon={<RouteIcon className="h-4 w-4" />}
+              tone="text-sky-400"
+            />
+          </div>
         </div>
-        <div className="glass-card rounded-2xl p-5">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Open errors</p>
-          {summaryQ.isLoading ? (
-            <Skeleton className="mt-2 h-7 w-16" />
-          ) : (
-            <p className="mt-2 font-display text-2xl font-bold">{s?.openErrors ?? 0}</p>
-          )}
+      </section>
+
+      {/* ============ SECONDARY ROW: SEVERITY MIX + TOP ROUTES ============ */}
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+        {/* Severity distribution (from current view) */}
+        <div className="glass-card rounded-2xl border border-border/60 p-5 lg:col-span-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                Severity mix
+              </p>
+              <h3 className="font-display mt-1 text-base font-bold">Current view breakdown</h3>
+            </div>
+            <Sparkles className="h-4 w-4 text-muted-foreground" />
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {(["critical", "high", "medium", "low"] as Severity[]).map((sev) => {
+              const meta = SEVERITY_META[sev];
+              const count = severityCounts[sev];
+              const pct = Math.round((count / totalOnPage) * 100);
+              return (
+                <div key={sev}>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-2">
+                      <span className={cn("h-2 w-2 rounded-full", meta.dot)} />
+                      <span className="font-medium">{meta.label}</span>
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {count} <span className="opacity-50">· {pct}%</span>
+                    </span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted/60">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all duration-700",
+                        sev === "critical" && "bg-rose-500",
+                        sev === "high" && "bg-orange-500",
+                        sev === "medium" && "bg-amber-500",
+                        sev === "low" && "bg-sky-500",
+                      )}
+                      style={{ width: `${count === 0 ? 0 : Math.max(4, pct)}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-4 text-[11px] text-muted-foreground">
+            Derived from {listQ.data?.rows.length ?? 0} issues on this page · live data.
+          </p>
         </div>
-        <div className="glass-card rounded-2xl p-5">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Critical (24h)</p>
+
+        {/* Top affected routes */}
+        <div className="glass-card rounded-2xl border border-border/60 p-5 lg:col-span-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                Top affected routes
+              </p>
+              <h3 className="font-display mt-1 text-base font-bold">Where issues concentrate</h3>
+            </div>
+            <RouteIcon className="h-4 w-4 text-muted-foreground" />
+          </div>
+
           {summaryQ.isLoading ? (
-            <Skeleton className="mt-2 h-7 w-16" />
+            <div className="mt-4 space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-9 w-full" />
+              ))}
+            </div>
+          ) : (s?.topRoutes ?? []).length === 0 ? (
+            <div className="mt-6 flex flex-col items-center justify-center rounded-xl border border-dashed border-border/60 py-8 text-center">
+              <CheckCircle2 className="h-6 w-6 text-emerald-400" />
+              <p className="mt-2 text-sm font-medium">No routes reporting open issues.</p>
+              <p className="text-xs text-muted-foreground">The system is quiet right now.</p>
+            </div>
           ) : (
-            <p className="mt-2 font-display text-2xl font-bold text-rose-400">
-              {s?.critical24h ?? 0}
-            </p>
+            <ul className="mt-4 divide-y divide-border/40">
+              {s!.topRoutes.slice(0, 6).map((r) => {
+                const max = s!.topRoutes[0]?.count || 1;
+                const pct = Math.round((r.count / max) * 100);
+                return (
+                  <li key={r.route} className="flex items-center gap-3 py-2">
+                    <code className="min-w-0 flex-1 truncate rounded-md bg-muted/50 px-2 py-1 text-[11px]">
+                      {r.route}
+                    </code>
+                    <div className="relative hidden h-1.5 w-32 overflow-hidden rounded-full bg-muted/60 sm:block">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-rose-500 to-orange-400"
+                        style={{ width: `${Math.max(6, pct)}%` }}
+                      />
+                    </div>
+                    <span className="w-12 text-right font-mono text-xs tabular-nums">
+                      {r.count}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
       </section>
 
-      <section className="glass-card rounded-2xl p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <Input
-            value={q}
-            onChange={(e) => {
-              setPage(0);
-              setQ(e.target.value);
-            }}
-            placeholder="Search message…"
-            className="h-9 w-full max-w-xs"
-          />
-          <Select
-            value={severity}
-            onValueChange={(v) => {
-              setPage(0);
-              setSeverity(v === "all" ? "" : v);
-            }}
-          >
-            <SelectTrigger className="h-9 w-40">
-              <SelectValue placeholder="Severity" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All severities</SelectItem>
-              <SelectItem value="critical">Critical</SelectItem>
-              <SelectItem value="high">High</SelectItem>
-              <SelectItem value="medium">Medium</SelectItem>
-              <SelectItem value="low">Low</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select
-            value={source}
-            onValueChange={(v) => {
-              setPage(0);
-              setSource(v === "all" ? "" : v);
-            }}
-          >
-            <SelectTrigger className="h-9 w-40">
-              <SelectValue placeholder="Source" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All sources</SelectItem>
-              <SelectItem value="frontend">Frontend</SelectItem>
-              <SelectItem value="backend">Backend</SelectItem>
-              <SelectItem value="db">Database</SelectItem>
-              <SelectItem value="network">Network</SelectItem>
-              <SelectItem value="unknown">Unknown</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select
-            value={resolved}
-            onValueChange={(v) => {
-              setPage(0);
-              setResolved(v);
-            }}
-          >
-            <SelectTrigger className="h-9 w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="open">Open</SelectItem>
-              <SelectItem value="resolved">Resolved</SelectItem>
-              <SelectItem value="all">All</SelectItem>
-            </SelectContent>
-          </Select>
+      {/* ============ ISSUE QUEUE ============ */}
+      <section className="glass-card rounded-2xl border border-border/60">
+        {/* Toolbar */}
+        <div className="flex flex-col gap-3 border-b border-border/40 p-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/60">
+              <Activity className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div>
+              <h3 className="font-display text-base font-bold leading-tight">Issue queue</h3>
+              <p className="text-[11px] text-muted-foreground">
+                {total.toLocaleString()} total · showing {showingFrom}–{showingTo}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={q}
+                onChange={(e) => {
+                  setPage(0);
+                  setQ(e.target.value);
+                }}
+                placeholder="Search message…"
+                className="h-9 w-full pl-8 sm:w-64"
+              />
+            </div>
+            <Select
+              value={severity || "all"}
+              onValueChange={(v) => {
+                setPage(0);
+                setSeverity(v === "all" ? "" : v);
+              }}
+            >
+              <SelectTrigger className="h-9 w-36">
+                <Filter className="mr-1.5 h-3.5 w-3.5" />
+                <SelectValue placeholder="Severity" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All severities</SelectItem>
+                <SelectItem value="critical">Critical</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="low">Low</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={source || "all"}
+              onValueChange={(v) => {
+                setPage(0);
+                setSource(v === "all" ? "" : v);
+              }}
+            >
+              <SelectTrigger className="h-9 w-36">
+                <SelectValue placeholder="Source" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All sources</SelectItem>
+                <SelectItem value="frontend">Frontend</SelectItem>
+                <SelectItem value="backend">Backend</SelectItem>
+                <SelectItem value="db">Database</SelectItem>
+                <SelectItem value="network">Network</SelectItem>
+                <SelectItem value="unknown">Unknown</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={resolved}
+              onValueChange={(v) => {
+                setPage(0);
+                setResolved(v);
+              }}
+            >
+              <SelectTrigger className="h-9 w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="open">Open</SelectItem>
+                <SelectItem value="resolved">Resolved</SelectItem>
+                <SelectItem value="all">All</SelectItem>
+              </SelectContent>
+            </Select>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="mr-1 h-3.5 w-3.5" /> Clear
+              </Button>
+            )}
+          </div>
         </div>
 
-        <div className="mt-4 overflow-x-auto">
+        {/* List */}
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="text-left text-xs uppercase text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2">Sev</th>
-                <th className="px-3 py-2">Source</th>
-                <th className="px-3 py-2">Message</th>
-                <th className="px-3 py-2">Route</th>
-                <th className="px-3 py-2 text-right">Count</th>
-                <th className="px-3 py-2">Last seen</th>
-                <th className="px-3 py-2" />
+            <thead className="text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+              <tr className="border-b border-border/40">
+                <th className="px-4 py-3 font-medium">Issue</th>
+                <th className="px-4 py-3 font-medium">Source</th>
+                <th className="px-4 py-3 font-medium">Route</th>
+                <th className="px-4 py-3 text-right font-medium">Count</th>
+                <th className="px-4 py-3 font-medium">Last seen</th>
+                <th className="px-4 py-3 text-right font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {listQ.isLoading ? (
                 Array.from({ length: 6 }).map((_, i) => (
-                  <tr key={i}>
-                    <td colSpan={7} className="px-3 py-2">
-                      <Skeleton className="h-6 w-full" />
+                  <tr key={i} className="border-t border-border/30">
+                    <td colSpan={6} className="px-4 py-3">
+                      <Skeleton className="h-8 w-full" />
                     </td>
                   </tr>
                 ))
-              ) : listQ.data?.rows.length === 0 ? (
+              ) : (listQ.data?.rows.length ?? 0) === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-10 text-center text-muted-foreground">
-                    <Activity className="mx-auto mb-2 h-6 w-6 opacity-50" />
-                    No errors match these filters. The system is quiet.
+                  <td colSpan={6} className="px-4 py-16 text-center">
+                    <div className="mx-auto flex max-w-sm flex-col items-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/10 ring-1 ring-emerald-500/20">
+                        <CheckCircle2 className="h-6 w-6 text-emerald-400" />
+                      </div>
+                      <p className="font-display mt-3 text-base font-bold">
+                        {hasActiveFilters ? "No matches" : "The system is quiet"}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {hasActiveFilters
+                          ? "Try clearing filters to see more issues."
+                          : "No errors reported with the current view. We'll surface new incidents here automatically."}
+                      </p>
+                      {hasActiveFilters && (
+                        <Button size="sm" variant="outline" className="mt-4" onClick={clearFilters}>
+                          Clear filters
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ) : (
-                listQ.data?.rows.map((r) => (
-                  <tr
-                    key={r.id}
-                    className="cursor-pointer border-t border-border/40 hover:bg-accent/30"
-                    onClick={() => setSelected(r)}
-                  >
-                    <td className="px-3 py-2">
-                      <Badge variant="outline" className={SEVERITY_STYLES[r.severity]}>
-                        {r.severity}
-                      </Badge>
-                    </td>
-                    <td className="px-3 py-2 capitalize text-muted-foreground">{r.source}</td>
-                    <td className="max-w-xl truncate px-3 py-2">{r.message}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{r.route ?? "—"}</td>
-                    <td className="px-3 py-2 text-right font-mono">{r.occurrence_count}</td>
-                    <td className="px-3 py-2 text-muted-foreground">
-                      {new Date(r.last_seen_at).toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {r.resolved ? (
-                        <Badge
-                          variant="outline"
-                          className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-                        >
-                          Resolved
-                        </Badge>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))
+                listQ.data!.rows.map((r) => {
+                  const meta = SEVERITY_META[r.severity];
+                  return (
+                    <tr
+                      key={r.id}
+                      className="group cursor-pointer border-t border-border/30 transition-colors hover:bg-accent/30"
+                      onClick={() => setSelected(r)}
+                    >
+                      <td className="max-w-[28rem] px-4 py-3 align-top">
+                        <div className="flex items-start gap-3">
+                          <span
+                            className={cn(
+                              "mt-1.5 h-2 w-2 shrink-0 rounded-full",
+                              meta.dot,
+                            )}
+                          />
+                          <div className="min-w-0">
+                            <p className="truncate font-medium leading-tight">{r.message}</p>
+                            <div className="mt-1 flex items-center gap-2">
+                              <Badge
+                                variant="outline"
+                                className={cn("h-5 px-1.5 py-0 text-[10px]", meta.chip)}
+                              >
+                                {meta.label}
+                              </Badge>
+                              {r.resolved && (
+                                <Badge
+                                  variant="outline"
+                                  className="h-5 border-emerald-500/30 bg-emerald-500/15 px-1.5 py-0 text-[10px] text-emerald-300"
+                                >
+                                  <CheckCheck className="mr-1 h-3 w-3" /> Resolved
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 align-top text-xs text-muted-foreground">
+                        {SOURCE_LABEL[r.source]}
+                      </td>
+                      <td className="max-w-xs px-4 py-3 align-top">
+                        {r.route ? (
+                          <code className="truncate rounded bg-muted/50 px-1.5 py-0.5 text-[11px]">
+                            {r.route}
+                          </code>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right align-top font-mono text-xs tabular-nums">
+                        {r.occurrence_count.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 align-top text-xs text-muted-foreground">
+                        {relativeTime(r.last_seen_at)}
+                      </td>
+                      <td
+                        className="px-4 py-3 text-right align-top"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="inline-flex items-center gap-1.5 opacity-80 transition-opacity group-hover:opacity-100">
+                          {r.resolved ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs"
+                              onClick={() => resolveM.mutate({ id: r.id, resolved: false })}
+                              disabled={resolveM.isPending}
+                            >
+                              Reopen
+                            </Button>
+                          ) : (
+                            <>
+                              <Button
+                                size="sm"
+                                className="h-7 bg-emerald-500/90 text-xs text-white hover:bg-emerald-500"
+                                onClick={() => resolveM.mutate({ id: r.id, resolved: true })}
+                                disabled={resolveM.isPending}
+                              >
+                                <CheckCheck className="mr-1 h-3.5 w-3.5" /> Resolve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                                onClick={() => resolveM.mutate({ id: r.id, resolved: true })}
+                                disabled={resolveM.isPending}
+                                title="Dismiss (mark resolved)"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
 
-        <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
-          <span>{listQ.data?.total ?? 0} total</span>
+        {/* Pagination */}
+        <div className="flex items-center justify-between border-t border-border/40 px-4 py-3 text-xs text-muted-foreground">
+          <span>
+            {total === 0
+              ? "0 results"
+              : `Showing ${showingFrom}–${showingTo} of ${total.toLocaleString()}`}
+          </span>
           <div className="flex gap-2">
             <Button
               size="sm"
@@ -344,7 +769,7 @@ function SystemHealthPage() {
             <Button
               size="sm"
               variant="outline"
-              disabled={!listQ.data || (page + 1) * pageSize >= (listQ.data.total ?? 0)}
+              disabled={!listQ.data || (page + 1) * pageSize >= total}
               onClick={() => setPage((p) => p + 1)}
             >
               Next
@@ -353,58 +778,130 @@ function SystemHealthPage() {
         </div>
       </section>
 
+      {/* ============ DETAIL DIALOG ============ */}
       <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-start gap-2 pr-6 text-base">
               {selected ? (
-                <Badge variant="outline" className={SEVERITY_STYLES[selected.severity]}>
-                  {selected.severity}
+                <Badge
+                  variant="outline"
+                  className={cn("shrink-0", SEVERITY_META[selected.severity].chip)}
+                >
+                  {SEVERITY_META[selected.severity].label}
                 </Badge>
               ) : null}
-              <span className="truncate">{selected?.message}</span>
+              <span className="min-w-0 break-words font-display">{selected?.message}</span>
             </DialogTitle>
             <DialogDescription className="text-xs">
-              {selected?.source} · {selected?.route ?? "no route"} · seen{" "}
-              {selected?.occurrence_count}× · last{" "}
-              {selected ? new Date(selected.last_seen_at).toLocaleString() : ""}
+              {selected ? (
+                <>
+                  {SOURCE_LABEL[selected.source]} ·{" "}
+                  {selected.route ? (
+                    <code className="rounded bg-muted/60 px-1 py-0.5">{selected.route}</code>
+                  ) : (
+                    "no route"
+                  )}{" "}
+                  · seen {selected.occurrence_count.toLocaleString()}× · last{" "}
+                  {new Date(selected.last_seen_at).toLocaleString()}
+                </>
+              ) : null}
             </DialogDescription>
           </DialogHeader>
           {selected ? (
             <div className="space-y-4 text-sm">
               {selected.stack ? (
                 <div>
-                  <p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
-                    Stack
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Stack trace
                   </p>
-                  <pre className="max-h-64 overflow-auto rounded-lg bg-muted/40 p-3 text-xs">
+                  <pre className="max-h-64 overflow-auto rounded-lg border border-border/40 bg-muted/40 p-3 text-[11px] leading-relaxed">
                     {selected.stack}
                   </pre>
                 </div>
               ) : null}
               {selected.payload ? (
                 <div>
-                  <p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Payload
                   </p>
-                  <pre className="max-h-48 overflow-auto rounded-lg bg-muted/40 p-3 text-xs">
+                  <pre className="max-h-48 overflow-auto rounded-lg border border-border/40 bg-muted/40 p-3 text-[11px] leading-relaxed">
                     {JSON.stringify(selected.payload, null, 2)}
                   </pre>
                 </div>
               ) : null}
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => resolveM.mutate({ id: selected.id, resolved: !selected.resolved })}
-                  disabled={resolveM.isPending}
-                >
-                  {selected.resolved ? "Reopen" : "Mark resolved"}
-                </Button>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-3">
+                <div className="text-[11px] text-muted-foreground">
+                  Fingerprint:{" "}
+                  <code className="rounded bg-muted/60 px-1 py-0.5">{selected.fingerprint.slice(0, 16)}</code>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!selected.resolved && (
+                    <Button
+                      variant="outline"
+                      onClick={() => resolveM.mutate({ id: selected.id, resolved: true })}
+                      disabled={resolveM.isPending}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" /> Dismiss
+                    </Button>
+                  )}
+                  <Button
+                    className={cn(
+                      !selected.resolved && "bg-emerald-500/90 text-white hover:bg-emerald-500",
+                    )}
+                    variant={selected.resolved ? "outline" : "default"}
+                    onClick={() => resolveM.mutate({ id: selected.id, resolved: !selected.resolved })}
+                    disabled={resolveM.isPending}
+                  >
+                    {selected.resolved ? (
+                      "Reopen issue"
+                    ) : (
+                      <>
+                        <CheckCheck className="mr-2 h-4 w-4" /> Mark resolved
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             </div>
           ) : null}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function MetricTile({
+  label,
+  value,
+  icon,
+  tone,
+  emphasise,
+}: {
+  label: string;
+  value: number | null;
+  icon: React.ReactNode;
+  tone: string;
+  emphasise?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-2xl border border-border/50 bg-background/50 p-4 backdrop-blur",
+        emphasise && "ring-1 ring-rose-500/30",
+      )}
+    >
+      <div className="flex items-center justify-between text-muted-foreground">
+        <span className="text-[10px] font-medium uppercase tracking-wider">{label}</span>
+        <span className={tone}>{icon}</span>
+      </div>
+      {value === null ? (
+        <Skeleton className="mt-2 h-7 w-12" />
+      ) : (
+        <p className="font-display mt-1.5 text-2xl font-bold tabular-nums">
+          {value.toLocaleString()}
+        </p>
+      )}
     </div>
   );
 }
