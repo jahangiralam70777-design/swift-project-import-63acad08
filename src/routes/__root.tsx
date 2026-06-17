@@ -319,9 +319,37 @@ function RootInner() {
       <ActivityTracker />
       <Outlet />
       <ConfirmDialogHost />
+      <DeferredWidgets userRole={user?.role} />
+    </Suspense>
+  );
+}
+
+// Mount floating widgets only after the page is idle / interactive so they
+// never delay first paint or block the route content from rendering.
+function DeferredWidgets({ userRole }: { userRole?: string | null }) {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(() => setReady(true), { timeout: 2500 });
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(() => setReady(true), 1500);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  if (!ready) return null;
+  const isStudent = userRole === "student";
+  return (
+    <Suspense fallback={null}>
       <WhatsAppFloatingButton />
-      {user?.role === "student" ? <LiveChatWidget /> : null}
-      {user?.role === "student" ? <BroadcastPopup /> : null}
+      {isStudent ? <LiveChatWidget /> : null}
+      {isStudent ? <BroadcastPopup /> : null}
     </Suspense>
   );
 }
