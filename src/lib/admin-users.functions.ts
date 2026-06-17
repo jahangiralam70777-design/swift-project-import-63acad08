@@ -221,7 +221,10 @@ export const adminListUsers = createServerFn({ method: "POST" })
     const rolesMap = new Map<string, string[]>();
     const roleDisplayMap = new Map<string, string[]>();
     if (ids.length) {
-      const { data: rs } = await sb
+      // Use service-role client: caller already verified via assertPermission("manage_users").
+      // RLS on user_roles only exposes the caller's own row to authenticated roles,
+      // which would mask every other user's real role and make them all read as "student".
+      const { data: rs } = await supabaseAdmin
         .from("user_roles")
         .select("user_id,role,display_name")
         .in("user_id", ids);
