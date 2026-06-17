@@ -146,6 +146,7 @@ function SystemHealthPage() {
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<SystemErrorRow | null>(null);
   const [tick, setTick] = useState(0); // forces relativeTime re-render
+  const [liveConnected, setLiveConnected] = useState(false);
 
   const filters = useMemo(
     () => ({
@@ -162,14 +163,16 @@ function SystemHealthPage() {
   const summaryQ = useQuery({
     queryKey: ["sys-health-summary"],
     queryFn: () => summary(),
-    refetchInterval: 30_000,
+    refetchInterval: 15_000,
     refetchOnWindowFocus: true,
+    retry: 1,
   });
   const listQ = useQuery({
     queryKey: ["sys-health-list", filters],
     queryFn: () => list({ data: filters }),
-    refetchInterval: 30_000,
+    refetchInterval: 15_000,
     refetchOnWindowFocus: true,
+    retry: 1,
   });
 
   // Re-render relative timestamps every 30s.
@@ -177,6 +180,31 @@ function SystemHealthPage() {
     const id = window.setInterval(() => setTick((t) => t + 1), 30_000);
     return () => window.clearInterval(id);
   }, []);
+
+  // Real-time: subscribe to system_error_logs so resolved issues vanish
+  // instantly and new incidents surface without waiting for the next poll.
+  useEffect(() => {
+    const channel = supabase
+      .channel(`sys-health-rt-${Date.now()}`)
+      .on(
+        "postgres_changes" as never,
+        { event: "*", schema: "public", table: "system_error_logs" },
+        () => {
+          qc.invalidateQueries({ queryKey: ["sys-health-list"] });
+          qc.invalidateQueries({ queryKey: ["sys-health-summary"] });
+        },
+      )
+      .subscribe((status: string) => {
+        setLiveConnected(status === "SUBSCRIBED");
+      });
+    return () => {
+      try {
+        supabase.removeChannel(channel);
+      } catch {
+        /* noop */
+      }
+    };
+  }, [qc]);
 
   const resolveM = useMutation({
     mutationFn: (vars: { id: string; resolved: boolean }) => resolve({ data: vars }),
