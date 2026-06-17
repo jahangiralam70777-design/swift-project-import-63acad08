@@ -510,11 +510,7 @@ function AdminUsersListPage() {
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">
-                        {primaryRole ? (
-                          <RoleBadge role={primaryRole} />
-                        ) : (
-                          <RoleBadge role="student" />
-                        )}
+                        {primaryRole ? <RoleBadge role={primaryRole} /> : <NoRoleBadge />}
                         {extraRoles.length > 0 && (
                           <span className="inline-flex items-center justify-center h-[22px] min-w-[22px] px-1.5 rounded-full text-[10px] font-bold bg-secondary/80 text-muted-foreground border border-border/50 tabular-nums">
                             +{extraRoles.length}
@@ -864,6 +860,15 @@ function RoleBadge({ role }: { role: string }) {
     >
       <span className={`h-[6px] w-[6px] rounded-full ${style.dot} shadow-sm`} />
       {style.short}
+    </span>
+  );
+}
+
+function NoRoleBadge() {
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-[5px] rounded-full text-[11px] font-semibold tracking-tight border whitespace-nowrap bg-muted/40 text-muted-foreground border-border/50">
+      <span className="h-[6px] w-[6px] rounded-full bg-muted-foreground/40 shadow-sm" />
+      No role assigned
     </span>
   );
 }
