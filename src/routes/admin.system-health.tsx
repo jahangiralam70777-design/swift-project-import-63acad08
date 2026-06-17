@@ -8,6 +8,7 @@ import {
   adminResolveSystemError,
   type SystemErrorRow,
 } from "@/lib/admin-system-health.functions";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -145,6 +146,7 @@ function SystemHealthPage() {
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<SystemErrorRow | null>(null);
   const [tick, setTick] = useState(0); // forces relativeTime re-render
+  const [liveConnected, setLiveConnected] = useState(false);
 
   const filters = useMemo(
     () => ({
@@ -161,14 +163,16 @@ function SystemHealthPage() {
   const summaryQ = useQuery({
     queryKey: ["sys-health-summary"],
     queryFn: () => summary(),
-    refetchInterval: 30_000,
+    refetchInterval: 15_000,
     refetchOnWindowFocus: true,
+    retry: 1,
   });
   const listQ = useQuery({
     queryKey: ["sys-health-list", filters],
     queryFn: () => list({ data: filters }),
-    refetchInterval: 30_000,
+    refetchInterval: 15_000,
     refetchOnWindowFocus: true,
+    retry: 1,
   });
 
   // Re-render relative timestamps every 30s.
@@ -176,6 +180,31 @@ function SystemHealthPage() {
     const id = window.setInterval(() => setTick((t) => t + 1), 30_000);
     return () => window.clearInterval(id);
   }, []);
+
+  // Real-time: subscribe to system_error_logs so resolved issues vanish
+  // instantly and new incidents surface without waiting for the next poll.
+  useEffect(() => {
+    const channel = supabase
+      .channel(`sys-health-rt-${Date.now()}`)
+      .on(
+        "postgres_changes" as never,
+        { event: "*", schema: "public", table: "system_error_logs" },
+        () => {
+          qc.invalidateQueries({ queryKey: ["sys-health-list"] });
+          qc.invalidateQueries({ queryKey: ["sys-health-summary"] });
+        },
+      )
+      .subscribe((status: string) => {
+        setLiveConnected(status === "SUBSCRIBED");
+      });
+    return () => {
+      try {
+        supabase.removeChannel(channel);
+      } catch {
+        /* noop */
+      }
+    };
+  }, [qc]);
 
   const resolveM = useMutation({
     mutationFn: (vars: { id: string; resolved: boolean }) => resolve({ data: vars }),
@@ -302,12 +331,27 @@ function SystemHealthPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="hidden items-center gap-2 rounded-full border border-border/60 bg-background/40 px-3 py-1.5 text-[11px] text-muted-foreground sm:flex">
+          <div
+            className={cn(
+              "hidden items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] sm:flex",
+              liveConnected
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                : "border-amber-500/30 bg-amber-500/10 text-amber-300",
+            )}
+            title={liveConnected ? "Realtime channel connected" : "Realtime offline · polling every 15s"}
+          >
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              {liveConnected && (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+              )}
+              <span
+                className={cn(
+                  "relative inline-flex h-2 w-2 rounded-full",
+                  liveConnected ? "bg-emerald-500" : "bg-amber-500",
+                )}
+              />
             </span>
-            Auto-refresh · 30s
+            {liveConnected ? "Live · realtime" : "Polling · 15s"}
           </div>
           <Button
             variant="outline"
@@ -331,6 +375,35 @@ function SystemHealthPage() {
           </Button>
         </div>
       </header>
+
+      {/* ============ UNREACHABLE BANNER ============ */}
+      {(summaryQ.isError || listQ.isError) && (
+        <div className="flex items-start gap-3 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-rose-100">Telemetry service unreachable</p>
+            <p
+              className="mt-0.5 text-xs text-rose-300/80"
+              style={{ overflowWrap: "anywhere" }}
+            >
+              {(summaryQ.error as Error | null)?.message ||
+                (listQ.error as Error | null)?.message ||
+                "Could not fetch system health data. Retrying automatically."}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-rose-500/40 text-rose-100 hover:bg-rose-500/20"
+            onClick={() => {
+              listQ.refetch();
+              summaryQ.refetch();
+            }}
+          >
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Retry
+          </Button>
+        </div>
+      )}
 
       {/* ============ HERO STATUS ============ */}
       <section
