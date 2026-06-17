@@ -1,17 +1,38 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { lazy, Suspense, useMemo } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useState } from "react";
 import { useModuleVisibility } from "@/hooks/use-module-visibility";
 import { studentDashboardSnapshot } from "@/lib/student-dashboard.functions";
 import { studentAdvancedAnalytics } from "@/lib/student-advanced-analytics.functions";
 import { useAppStore } from "@/stores/app-store";
 import { Skeleton } from "@/components/ui/skeleton";
 
-import { CompletionTracker } from "./CompletionTracker";
+const CompletionTracker = lazy(() =>
+  import("./CompletionTracker").then((m) => ({ default: m.CompletionTracker })),
+);
 const AdvancedAnalyticsSection = lazy(() =>
   import("./AdvancedAnalyticsSection").then((m) => ({ default: m.AdvancedAnalyticsSection })),
 );
+
+/** Mount children only after the browser is idle to keep initial paint fast. */
+function DeferUntilIdle({ children, fallback }: { children: React.ReactNode; fallback?: React.ReactNode }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (typeof w.requestIdleCallback === "function") {
+      const id = w.requestIdleCallback(() => setReady(true), { timeout: 1500 });
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const t = setTimeout(() => setReady(true), 200);
+    return () => clearTimeout(t);
+  }, []);
+  if (!ready) return <>{fallback ?? null}</>;
+  return <>{children}</>;
+}
 import { CountUp } from "@/components/realtime/CountUp";
 import { stripAutoTitle } from "@/lib/strip-auto";
 import {
@@ -49,7 +70,7 @@ function greeting() {
 }
 
 // Tiny inline sparkline
-function Sparkline({ values, color }: { values: number[]; color: string }) {
+const Sparkline = memo(function Sparkline({ values, color }: { values: number[]; color: string }) {
   const max = Math.max(1, ...values);
   const pts = values
     .map((v, i) => `${(i / Math.max(1, values.length - 1)) * 100},${30 - (v / max) * 28}`)
@@ -67,7 +88,7 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
       <polyline points={`0,30 ${pts} 100,30`} fill={color} opacity="0.12" />
     </svg>
   );
-}
+});
 
 export function DashContent() {
   const { isPathHidden } = useModuleVisibility();
@@ -80,8 +101,10 @@ export function DashContent() {
   const { data } = useQuery({
     queryKey: ["student-dashboard-snapshot"],
     queryFn: () => fetchSnapshot(),
-    staleTime: 30_000,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
     refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 
   // Dedupes with AdvancedAnalyticsSection's query — gives us real MCQ counts + goals.
@@ -89,8 +112,10 @@ export function DashContent() {
   const { data: adv } = useQuery({
     queryKey: ["student-advanced-analytics"],
     queryFn: () => fetchAdvanced(),
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
     refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 
   const counts = data?.counts;
@@ -505,9 +530,11 @@ export function DashContent() {
       </section>
 
       {/* ============ ADVANCED ANALYTICS (existing) ============ */}
-      <Suspense fallback={<Skeleton className="h-72 w-full rounded-3xl" />}>
-        <AdvancedAnalyticsSection />
-      </Suspense>
+      <DeferUntilIdle fallback={<Skeleton className="h-72 w-full rounded-3xl" />}>
+        <Suspense fallback={<Skeleton className="h-72 w-full rounded-3xl" />}>
+          <AdvancedAnalyticsSection />
+        </Suspense>
+      </DeferUntilIdle>
 
       {/* ============ MOCK CARD ============ */}
       {!mockTestHidden && (
@@ -669,7 +696,11 @@ export function DashContent() {
       </section>
 
       {/* ============ COMPLETION TRACKER (existing) ============ */}
-      <CompletionTracker />
+      <DeferUntilIdle fallback={<Skeleton className="h-40 w-full rounded-3xl" />}>
+        <Suspense fallback={<Skeleton className="h-40 w-full rounded-3xl" />}>
+          <CompletionTracker />
+        </Suspense>
+      </DeferUntilIdle>
     </main>
   );
 }
