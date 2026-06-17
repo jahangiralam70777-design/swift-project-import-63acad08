@@ -110,8 +110,9 @@ export const adminListUsers = createServerFn({ method: "POST" })
     if (data.role) {
       const role = data.role;
       if (role === "student") {
-        // Deny anyone with an elevated role.
-        const { data: elevated } = await sb
+        // Deny anyone with an elevated role. Use service-role client because
+        // RLS on user_roles only exposes the caller's own row to authenticated.
+        const { data: elevated } = await supabaseAdmin
           .from("user_roles")
           .select("user_id")
           .in("role", ELEVATED_ROLES as unknown as string[]);
@@ -120,7 +121,7 @@ export const adminListUsers = createServerFn({ method: "POST" })
       } else {
         const targetRoles =
           role === "admin" ? (ADMIN_ROLES as readonly string[]) : [role];
-        const { data: matches } = await sb
+        const { data: matches } = await supabaseAdmin
           .from("user_roles")
           .select("user_id")
           .in("role", targetRoles as unknown as string[]);
