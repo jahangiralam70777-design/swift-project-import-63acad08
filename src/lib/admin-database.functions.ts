@@ -96,7 +96,10 @@ export const adminGetDatabaseStats = createServerFn({ method: "POST" })
       profilesRecent,
     ] = await Promise.all([
       sb.from("profiles").select("id", { count: "exact", head: true }),
-      sb.from("user_roles").select("user_id", { count: "exact" }).eq("role", "admin"),
+      supabaseAdmin
+        .from("user_roles")
+        .select("user_id")
+        .in("role", ["admin", "super_admin"]),
       sb.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", sevenAgo),
       sb.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", thirtyAgo),
       sb.from("exam_attempts").select("user_id").gte("created_at", sevenAgo).limit(20000),
@@ -147,7 +150,9 @@ export const adminGetDatabaseStats = createServerFn({ method: "POST" })
       ["profiles.recent", profilesRecent],
     ]);
 
-    const adminCount = adminRoles.count ?? 0;
+    const adminCount = new Set(
+      ((adminRoles.data ?? []) as Array<{ user_id: string }>).map((r) => r.user_id),
+    ).size;
     const totalUsers = profilesTotal.count ?? 0;
     const students = Math.max(0, totalUsers - adminCount);
     const active7d = new Set(

@@ -72,7 +72,7 @@ import {
 import { UserCommandDrawer } from "@/components/admin/users/UserCommandDrawer";
 
 const statusEnum = z.enum(["active", "suspended", "pending", "deleted"]);
-const roleEnum = z.enum(["admin", "moderator", "student"]);
+const roleEnum = z.enum(["admin", "super_admin", "moderator", "student"]);
 const dateEnum = z.enum(["24h", "7d", "30d", "lifetime"]);
 const sortEnum = z.enum(["recent", "name", "logins", "usage", "lastLogin"]);
 
@@ -366,6 +366,7 @@ function AdminUsersListPage() {
             <SelectContent>
               <SelectItem value="all">All roles</SelectItem>
               <SelectItem value="admin">Admin</SelectItem>
+              <SelectItem value="super_admin">Super Admin</SelectItem>
               <SelectItem value="moderator">Moderator</SelectItem>
               <SelectItem value="student">Student</SelectItem>
             </SelectContent>
@@ -510,11 +511,7 @@ function AdminUsersListPage() {
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">
-                        {primaryRole ? (
-                          <RoleBadge role={primaryRole} />
-                        ) : (
-                          <RoleBadge role="student" />
-                        )}
+                        {primaryRole ? <RoleBadge role={primaryRole} /> : <NoRoleBadge />}
                         {extraRoles.length > 0 && (
                           <span className="inline-flex items-center justify-center h-[22px] min-w-[22px] px-1.5 rounded-full text-[10px] font-bold bg-secondary/80 text-muted-foreground border border-border/50 tabular-nums">
                             +{extraRoles.length}
@@ -868,6 +865,15 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
+function NoRoleBadge() {
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-[5px] rounded-full text-[11px] font-semibold tracking-tight border whitespace-nowrap bg-muted/40 text-muted-foreground border-border/50">
+      <span className="h-[6px] w-[6px] rounded-full bg-muted-foreground/40 shadow-sm" />
+      No role assigned
+    </span>
+  );
+}
+
 function LevelBadge({ level }: { level: number | string | null | undefined }) {
   const display = level === null || level === undefined || level === "" ? "—" : String(level);
   return (
@@ -893,6 +899,7 @@ function buildTitle(s: z.infer<typeof searchSchema>) {
   if (s.verified === true) return "Verified users";
   if (s.verified === false) return "Unverified users";
   if (s.role === "admin") return "Administrators";
+  if (s.role === "super_admin") return "Super Administrators";
   if (s.role === "moderator") return "Moderators";
   if (s.status === "active") return "Active users";
   if (s.status === "pending") return "Pending users";

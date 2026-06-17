@@ -24,7 +24,6 @@ const listInput = z.object({
 
 // Roles that classify a user as an administrator (used by stats + filters)
 const ADMIN_ROLES = ["admin", "super_admin"] as const;
-const ELEVATED_ROLES = ["admin", "super_admin", "moderator"] as const;
 
 // Page through auth.users to collect ids matching a predicate (verified flag).
 // Caps at 10k users to stay safe; sufficient for this app's scale.
@@ -104,32 +103,20 @@ export const adminListUsers = createServerFn({ method: "POST" })
     }
 
     // 2) Role filter (server-side via user_roles).
-    //    - "admin" includes super_admin (matches the Administrators summary card)
-    //    - "student" includes users with explicit student/user role AND users
-    //      with no elevated role at all (default-student semantics).
+    //    Always filter by explicit user_roles rows. Never infer "student" from
+    //    missing roles — role display/filtering must reflect the database only.
     if (data.role) {
       const role = data.role;
-      if (role === "student") {
-        // Deny anyone with an elevated role. Use service-role client because
-        // RLS on user_roles only exposes the caller's own row to authenticated.
-        const { data: elevated } = await supabaseAdmin
-          .from("user_roles")
-          .select("user_id")
-          .in("role", ELEVATED_ROLES as unknown as string[]);
-        const denyIds = new Set<string>((elevated ?? []).map((r: { user_id: string }) => r.user_id));
-        idDenylists.push(denyIds);
-      } else {
-        const targetRoles =
-          role === "admin" ? (ADMIN_ROLES as readonly string[]) : [role];
-        const { data: matches } = await supabaseAdmin
-          .from("user_roles")
-          .select("user_id")
-          .in("role", targetRoles as unknown as string[]);
-        const matchIds = new Set<string>(
-          (matches ?? []).map((r: { user_id: string }) => r.user_id),
-        );
-        idFilters.push(matchIds);
-      }
+      const targetRoles = role === "admin" ? (ADMIN_ROLES as readonly string[]) : [role];
+      const { data: matches, error: roleFilterError } = await supabaseAdmin
+        .from("user_roles")
+        .select("user_id")
+        .in("role", targetRoles as unknown as string[]);
+      if (roleFilterError) throw roleFilterError;
+      const matchIds = new Set<string>(
+        (matches ?? []).map((r: { user_id: string }) => r.user_id),
+      );
+      idFilters.push(matchIds);
     }
 
     // 3) Verified filter (server-side via auth.users).
@@ -193,7 +180,6 @@ export const adminListUsers = createServerFn({ method: "POST" })
       // Postgres `in` accepts up to ~1000 ids comfortably; we cap at 10k auth users.
       q = q.in("id", allowedIds);
     } else if (idDenylists.length > 0) {
-      // Default-student case with no other positive id filter: exclude elevated users.
       const denyAll = new Set<string>();
       for (const d of idDenylists) for (const id of d) denyAll.add(id);
       if (denyAll.size > 0) {
@@ -225,16 +211,17 @@ export const adminListUsers = createServerFn({ method: "POST" })
       // Use service-role client: caller already verified via assertPermission("manage_users").
       // RLS on user_roles only exposes the caller's own row to authenticated roles,
       // which would mask every other user's real role and make them all read as "student".
-      const { data: rs } = await supabaseAdmin
+      const { data: rs, error: rolesError } = await supabaseAdmin
         .from("user_roles")
-        .select("user_id,role,display_name")
+        .select("user_id,role")
         .in("user_id", ids);
+      if (rolesError) throw rolesError;
       for (const r of rs ?? []) {
         const arr = rolesMap.get(r.user_id) ?? [];
         arr.push(r.role);
         rolesMap.set(r.user_id, arr);
         const dArr = roleDisplayMap.get(r.user_id) ?? [];
-        dArr.push(r.display_name ?? r.role);
+        dArr.push(r.role);
         roleDisplayMap.set(r.user_id, dArr);
       }
     }
@@ -286,13 +273,11 @@ export const adminListUsers = createServerFn({ method: "POST" })
       const auth = emailMap.get(p.id);
       const fallback = auth?.email ?? `${p.id.slice(0, 8)}…`;
       const roles = rolesMap.get(p.id) ?? [];
-      // Default-student: surface "student" so the UI badge is never blank.
-      const effectiveRoles = roles.length > 0 ? roles : ["student"];
       return {
         ...p,
         display_name: p.display_name ?? fallback,
-        roles: effectiveRoles,
-        roleDisplays: roleDisplayMap.get(p.id) ?? effectiveRoles,
+        roles,
+        roleDisplays: roleDisplayMap.get(p.id) ?? roles,
         email: auth?.email ?? null,
         email_verified: auth?.verified ?? false,
       };
